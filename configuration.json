@@ -1,0 +1,4 @@
+{
+    "SendWaitTimeMs": 1000,
+    "StaticCacheTimeoutS": 300
+}

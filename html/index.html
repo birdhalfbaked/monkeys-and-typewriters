@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Page Title</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1; user-scalable=no;user-scalable=0;'>
+    <style>
+        h1 {
+            font-family: serif;
+        }
+        .grey {
+            color: #aaa;
+        }
+        .main-container {
+            margin-left: auto;
+            margin-right: auto;
+            max-width: 500px;
+            text-align: center
+        }
+        .stats {
+            font-size: small;
+            padding: 1em;
+            border-radius: 1em;
+            background-color: rgb(109, 71, 71);
+            color: white;
+            margin-bottom: 2em;
+        }
+        .script {
+            text-align: left;
+        }
+        .previous {
+            border: 1px black solid;
+            padding: 0 2em;
+            max-height: 300px!important;
+            text-align: left;
+            overflow-y: scroll;
+        }
+        .hidden {
+            opacity: 0;
+        }
+        .button {
+            height: 2em;
+            background-color: rgb(235, 219, 198);
+            width: 100%;
+            border: 1px solid black
+        }
+        .button:hover {
+            background-color:  rgb(253, 240, 223);
+        }
+        .button:active {
+            background-color:  rgb(212, 201, 187);
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="stats">
+            <h2>Connected Monkeys: <span id="monkeys">0</span></h2>
+            <h3 id="progress">Progress: </h3>
+            <h3 id="time">Elapsed time: </h3>
+            <h4>Typed Keys: <span id="typed-keys">0</span></h4>
+            <h4>Failures: <span id="resets">0</span></h4>
+        </div>
+        <button id="show-button" class="button">show/hide previous parts</button>
+        <div class="previous" id="previous">
+        </div>
+        <div class="script">
+            <h3 id="speaker"></h3>
+            <h1 id="part"></h1>
+            <h4>tap the text above if on mobile</h4>
+            <input id="hidden-type" type="text" class="hidden"/>
+        </div>
+
+    </div>
+    <script src="/hamlet.js"></script>
+    <script>
+
+        // TODONT: clean this mess up
+        var part = -1
+        var checkpoint = -1
+        var index = -1
+        var act = ""
+        var scene = ""
+        var speaker = ""
+        var phrase = ""
+        var reRender = false;
+        var doUpdatePhrase = false;
+        var lastData = {};
+        const allowedLetters = 'abcdefghijklmnopqrstuvwxyz,.!?;:"\'-';
+        function connectWs(data){
+            console.log(window.location)
+            let kws = new WebSocket(data.WSServer);
+            kws.binaryType = "arraybuffer"
+            kws.onmessage = (msg)=>{
+                try {
+                    let data = {
+                        TotalResets: 0,
+                        TotalKeys: 0,
+                        Part: 0,
+                        Index: 0,
+                        Checkpoint: 0,
+                        Clients: 0
+                    }
+                    if (event.data instanceof ArrayBuffer) {
+                        // binary frame
+                        const view = new DataView(event.data);
+                        data.TotalResets = view.getBigUint64(0 * 8, true);
+                        data.TotalKeys = view.getBigUint64(1 * 8, true);
+                        data.Part = view.getUint16(2 * 8, true);
+                        data.Index = view.getUint16(2 * 8 + 1 * 2, true);
+                        data.Checkpoint = view.getUint16(2 * 8 + 2 * 2, true);
+                        data.Clients = view.getUint32(2 * 8 + 3 * 2, true);
+                    }
+                    lastData = data;
+                    if (data.Part !== part){
+                        part = data.Part
+                        reRender = true
+                        doUpdatePhrase = true;
+                    }
+                    if (data.Index != index){
+                        index = data.Index
+                        reRender = true
+                    }
+                    checkpoint = data.Checkpoint
+                } catch(e){
+                    console.log(e) // I won't look at this, but you can
+                }
+            }
+            window.kws = kws;
+            doUpdatePhrase = true;
+            setInterval(rerender, 32)
+        }
+
+        const startTime = 1726344239000;
+        function rerender(){
+            document.getElementById("progress").innerText = `${lastData.Part+1} of 4011 (${((lastData.Part+1)/4011).toFixed(2)}%)`
+            let timeSince = (new Date().getTime() - startTime);
+            let hoursSince = timeSince / 1000/60/60;
+            let minsSince = (hoursSince - Math.floor(hoursSince)) * 60;
+            let secsSince = ((minsSince - Math.floor(minsSince)) * 60).toFixed(3);
+            document.getElementById("time").innerText = `Elapsed time: ${Math.floor(hoursSince)} hours, ${Math.floor(minsSince)} mins, ${Math.floor(secsSince)} s`
+            document.getElementById("typed-keys").innerText = lastData.TotalKeys
+            document.getElementById("resets").innerText = lastData.TotalResets
+            document.getElementById("monkeys").innerText = lastData.Clients
+            var checkpointed = phrase.substring(0, checkpoint);
+            var completed = phrase.substring(checkpoint, index);
+            var notCompleted = phrase.substring(index, phrase.length);
+            var iHTML = `<b><span style="color:#0d0">${checkpointed}</span>${completed}</b><span class="grey">${notCompleted}</span>`
+            document.getElementById("speaker").innerText = speaker
+            document.getElementById("part").innerHTML = iHTML
+            if (doUpdatePhrase){
+                updatePhrase();
+                doUpdatePhrase = false;
+            }
+        }
+
+        function updatePhrase(){
+            let prevElem = document.getElementById("previous")
+            prevElem.innerHTML = ""
+            var prevSection = "<div>"
+            let parts = -1
+            var curSpeaker = {name: "", parts: []}
+            function addSpeakerPartsToHistory(){
+                prevSection += `<h3>${curSpeaker.name}</h3>`
+                curSpeaker.parts.forEach(p => {
+                    prevSection += `<h4>${p}</h4>`
+                })
+            }
+            for (let i = 0; i < window.hamlet.length; i++){
+                let item = window.hamlet[i];
+                switch(item.type){
+                case "act":
+                    act = item.text;
+                    prevSection += `<h2>${act}</h2>`
+                    break;
+                case "scene":
+                    scene = item.text;
+                    prevSection += `<h2>${scene}</h2>`
+                    break;
+                case "speaker":
+                    if(curSpeaker.parts.length > 0) addSpeakerPartsToHistory();
+                    curSpeaker = {name: item.text, parts: []};
+                    break;
+                case "part":
+                    curSpeaker.parts.push(item.text)
+                    parts++
+                    break;
+                }
+                if (parts == part) {
+                    let curPhrase = curSpeaker.parts.pop()
+                    if (curSpeaker.parts.length > 0) addSpeakerPartsToHistory();
+                    phrase = curPhrase;
+                    speaker = curSpeaker.name
+                    break
+                };
+            }
+            prevSection += "</div>"
+            prevElem.innerHTML += prevSection;
+            prevElem.scrollTo({top: prevElem.scrollHeight})
+        }
+
+        function showHidePrevious(){
+            let elem = document.getElementById("previous")
+            elem.style.display = elem.style.display !== "none"?"none":"block"
+        }
+        document.getElementById("show-button").onclick = showHidePrevious
+
+        document.getElementById("part").onclick = ()=>{
+            document.getElementById("hidden-type").focus()
+        }
+
+        function handleKey(evt){
+            let key = evt.key.toLowerCase();
+            if (allowedLetters.includes(key)) {
+                window.kws.send(key.charCodeAt(0))
+            }
+            document.getElementById("hidden-type").value = ""
+        }
+        document.onkeydown = handleKey
+
+        let xhr = new XMLHttpRequest();
+        xhr.open("GET", "/wsServer")
+        xhr.onload = (elem)=>{
+            let data = JSON.parse(elem.currentTarget.response);
+            connectWs(data)
+        }
+        xhr.send();
+    </script>
+</body>
+</html>
