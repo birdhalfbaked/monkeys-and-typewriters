@@ -86,11 +86,15 @@
         var reRender = false;
         var doUpdatePhrase = false;
         var lastData = {};
+        var ready = false
         const allowedLetters = 'abcdefghijklmnopqrstuvwxyz,.!?;:"\'-';
         function connectWs(data){
             console.log(window.location)
             let kws = new WebSocket(data.WSServer);
             kws.binaryType = "arraybuffer"
+            kws.onclose = ()=>{
+                alert("Sorry, but I had to take the server down and restart, refresh to continue playing")
+            }
             kws.onmessage = (msg)=>{
                 try {
                     let data = {
@@ -122,6 +126,7 @@
                         reRender = true
                     }
                     checkpoint = data.Checkpoint
+                    ready = true;
                 } catch(e){
                     console.log(e) // I won't look at this, but you can
                 }
@@ -133,6 +138,7 @@
 
         const startTime = 1726344239000;
         function rerender(){
+            if (!ready) return;
             document.getElementById("progress").innerText = `${lastData.Part+1} of 4011 (${((lastData.Part+1)/4011).toFixed(2)}%)`
             let timeSince = (new Date().getTime() - startTime);
             let hoursSince = timeSince / 1000/60/60;

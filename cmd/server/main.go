@@ -350,7 +350,11 @@ func createServerAndListen() {
 	http.HandleFunc("/hamlet.js", server.hamlet)
 	http.HandleFunc("/wsServer", server.getServer)
 
-	pageListener, err := net.Listen("tcp", ":8000")
+	pagePort := ":80"
+	if TLS_CERT_PATH != "" {
+		pagePort = ":443"
+	}
+	pageListener, err := net.Listen("tcp", pagePort)
 	if err != nil {
 		panic(err)
 	}
@@ -375,6 +379,7 @@ func createServerAndListen() {
 	if TLS_CERT_PATH == "" {
 		http.Serve(pageListener, nil)
 	} else {
+		slog.Info("Serving with TLS")
 		http.ServeTLS(pageListener, nil, TLS_CERT_PATH, TLS_KEY_PATH)
 	}
 }
@@ -406,7 +411,7 @@ func (s *Server) wsUpgradeHandler(upgrader websocket.Upgrader) http.HandlerFunc 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	var data StaticCacheData
 	data, ok := STATIC_RESPONSE_CACHE["index"]
-	if !ok || time.Since(data.cacheTime) > (5*60*time.Millisecond) {
+	if !ok || time.Since(data.cacheTime) > (time.Duration(CONFIGURATION.StaticCacheTimeoutS)*time.Millisecond) {
 		data = StaticCacheData{}
 		file, _ := os.Open("./html/index.html")
 		data.bytes, _ = io.ReadAll(file)
