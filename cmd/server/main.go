@@ -44,7 +44,7 @@ func loadHotConfigurables() {
 	if err != nil {
 		slog.Error("could not process hotload configuration", "error", err)
 	}
-	if newConfig.SendWaitTimeMs == CONFIGURATION.SendWaitTimeMs && newConfig.StaticCacheTimeoutS == CONFIGURATION.StaticCacheTimeoutS {
+	if newConfig.SendWaitTimeMs == CONFIGURATION.SendWaitTimeMs && newConfig.StaticCacheTimeoutS == CONFIGURATION.StaticCacheTimeoutS && newConfig.TypeForcedWaitMs == CONFIGURATION.TypeForcedWaitMs {
 		// don't bother
 		return
 	}
