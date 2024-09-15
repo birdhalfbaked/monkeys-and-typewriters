@@ -126,6 +126,7 @@ func (c *Client) handleInMessages() {
 		} else if bytes.Contains(ALLOWED_CHARS, []byte{key}) && timeSinceLastRead > int64(CONFIGURATION.TypeForcedWaitMs) {
 			// we have to swallow because otherwise it will just queue up anyway and potentially be more unfun.
 			c.inChan <- key
+			lastRead = time.Now()
 		}
 		time.Sleep(10 * time.Millisecond) // force a sleep to prevent flooding
 	}
