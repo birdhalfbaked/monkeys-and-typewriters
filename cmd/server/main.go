@@ -120,6 +120,7 @@ func (c *Client) handleInMessages() {
 		} else if bytes.Contains(ALLOWED_CHARS, []byte{key}) {
 			c.inChan <- key
 		}
+		time.Sleep(50 * time.Millisecond) // prevent easy cheating by forcing a wait
 	}
 }
 
