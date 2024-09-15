@@ -60,6 +60,7 @@
             <h3 id="time">Elapsed time: </h3>
             <h4>Typed Keys: <span id="typed-keys">0</span></h4>
             <h4>Failures: <span id="resets">0</span></h4>
+            <h4 id="last-keys"></h4>
         </div>
         <button id="show-button" class="button">show/hide previous parts</button>
         <div class="previous" id="previous">
@@ -103,7 +104,8 @@
                         Part: 0,
                         Index: 0,
                         Checkpoint: 0,
-                        Clients: 0
+                        Clients: 0,
+                        LastTwenty: []
                     }
                     if (event.data instanceof ArrayBuffer) {
                         // binary frame
@@ -114,6 +116,12 @@
                         data.Index = view.getUint16(2 * 8 + 1 * 2, true);
                         data.Checkpoint = view.getUint16(2 * 8 + 2 * 2, true);
                         data.Clients = view.getUint32(2 * 8 + 3 * 2, true);
+                        for (let i = 0; i < 20; i++){
+                            let char = view.getUint8((2 * 8 + 3 * 2 + 4) + i);
+                            if (char > 0){
+                                data.LastTwenty.push(String.fromCharCode(char))
+                            }
+                        }
                     }
                     lastData = data;
                     if (data.Part !== part){
@@ -148,6 +156,8 @@
             document.getElementById("typed-keys").innerText = lastData.TotalKeys
             document.getElementById("resets").innerText = lastData.TotalResets
             document.getElementById("monkeys").innerText = lastData.Clients
+            document.getElementById("last-keys").innerText = lastData.LastTwenty.join(" ")
+
             var checkpointed = phrase.substring(0, checkpoint);
             var completed = phrase.substring(checkpoint, index);
             var notCompleted = phrase.substring(index, phrase.length);

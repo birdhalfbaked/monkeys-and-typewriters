@@ -8,11 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +122,22 @@ func (c *Client) handleInMessages() {
 	}
 }
 
+func (c *Client) broadcastState() {
+	var err error
+	var prevMessage *websocket.PreparedMessage
+	for {
+		if c.gameRef.stateMessage != prevMessage {
+			err = c.conn.WritePreparedMessage(c.gameRef.stateMessage)
+			if err != nil {
+				c.Close()
+				return
+			}
+			prevMessage = c.gameRef.stateMessage
+		}
+		time.Sleep(time.Duration(CONFIGURATION.SendWaitTimeMs) * time.Millisecond)
+	}
+}
+
 func (c *Client) Close() {
 	host, _, _ := net.SplitHostPort(c.conn.RemoteAddr().String())
 	c.conn.Close()
@@ -133,9 +147,7 @@ func (c *Client) Close() {
 		delete(c.gameRef.clientsByIP, host)
 	}
 	NEW_IP_MUTEX.Unlock()
-	NEW_CLIENT_MUTEX.Lock()
-	delete(c.gameRef.clients, c.ID)
-	NEW_CLIENT_MUTEX.Unlock()
+	c.gameRef.clients--
 }
 
 type HamletItem struct {
@@ -151,6 +163,7 @@ type Part struct {
 type Game struct {
 	sqlConn             *sql.DB
 	inChan              chan byte
+	clientChan          chan *Client
 	AllParts            map[int]Part
 	PartText            string
 	PartIndex           int
@@ -160,8 +173,10 @@ type Game struct {
 	CurrentPartFailures int
 	TotalFailures       int
 	TotalKeys           int
-	clients             map[uuid.UUID]*Client
+	stateMessage        *websocket.PreparedMessage
+	clients             uint32
 	clientsByIP         map[string]int
+	lastTwenty          []uint8
 }
 
 func initDB() (db *sql.DB, err error) {
@@ -206,6 +221,7 @@ func newGame() (game *Game) {
 	game = &Game{
 		sqlConn:             sqlConn,
 		inChan:              inChan,
+		clientChan:          make(chan *Client, 25000),
 		AllParts:            parts,
 		PartText:            strings.ToLower(parts[0].Text),
 		PartIndex:           0,
@@ -213,15 +229,17 @@ func newGame() (game *Game) {
 		Index:               0,
 		Length:              len(parts[0].Text),
 		CurrentPartFailures: 0,
-		clients:             make(map[uuid.UUID]*Client),
+		stateMessage:        nil,
+		clients:             0,
 		clientsByIP:         make(map[string]int),
+		lastTwenty:          make([]uint8, 20),
 	}
 	err = game.loadState()
 	if err != nil {
 		panic(err)
 	}
+	game.stateMessage = game.newPreparedMessage(make([]byte, 46))
 	go game.saveStateRoutine()
-	go game.sendStateToClients()
 	go game.handleInMessages()
 	return
 }
@@ -257,43 +275,29 @@ func (g *Game) loadState() (err error) {
 	return
 }
 
-func (g *Game) sendStateToClients() {
-	for {
-		var packet = OutDataPacket{
-			TotalResets: uint64(g.TotalFailures),
-			TotalKeys:   uint64(g.TotalKeys),
-			Part:        uint16(g.PartIndex),
-			Index:       uint16(g.Index),
-			Checkpoint:  uint16(g.CheckpointIndex),
-			Clients:     uint32(len(g.clients)),
-		}
-		msgData := make([]byte, 8*2+2*3+4*1)
-		binary.Encode(msgData, binary.LittleEndian, packet)
-		preppedMsg, err := websocket.NewPreparedMessage(websocket.BinaryMessage, msgData)
-		if err != nil {
-			slog.Error(err.Error())
-		} else {
-			allClients := make([]*Client, len(g.clients))
-			NEW_CLIENT_MUTEX.Lock()
-			for _, c := range g.clients {
-				allClients = append(allClients, c)
-			}
-			NEW_CLIENT_MUTEX.Unlock()
-			for _, client := range allClients {
-				if client != nil {
-					writeErr := client.conn.WritePreparedMessage(preppedMsg)
-					if writeErr == websocket.ErrCloseSent {
-						client.Close()
-					}
-				}
-			}
-		}
-		time.Sleep(time.Duration(CONFIGURATION.SendWaitTimeMs) * time.Millisecond)
+func (g *Game) newPreparedMessage(buffer []byte) *websocket.PreparedMessage {
+	var packet = OutDataPacket{
+		TotalResets: uint64(g.TotalFailures),
+		TotalKeys:   uint64(g.TotalKeys),
+		Part:        uint16(g.PartIndex),
+		Index:       uint16(g.Index),
+		Checkpoint:  uint16(g.CheckpointIndex),
+		Clients:     g.clients,
 	}
+	var err error
+	binary.Encode(buffer, binary.LittleEndian, packet)
+	buffer = append(buffer[:26], g.lastTwenty...)
+	stateMessage, err := websocket.NewPreparedMessage(websocket.BinaryMessage, buffer)
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	return stateMessage
 }
 
 func (g *Game) handleInMessages() {
+	msgData := make([]byte, 8*2+2*3+4*1+20)
 	for char := range g.inChan {
+		g.lastTwenty = append(g.lastTwenty[1:], char)
 		g.TotalKeys++
 		if char == g.PartText[g.Index] {
 			for {
@@ -317,6 +321,10 @@ func (g *Game) handleInMessages() {
 			g.CurrentPartFailures++
 			g.TotalFailures++
 		}
+		message := g.newPreparedMessage(msgData)
+		if message != nil {
+			g.stateMessage = message
+		}
 	}
 }
 
@@ -328,21 +336,19 @@ func (g *Game) createClient(uuid uuid.UUID, conn *websocket.Conn) {
 		inChan:  g.inChan,
 	}
 	go client.handleInMessages()
-	NEW_CLIENT_MUTEX.Lock()
-	g.clients[client.ID] = client
-	NEW_CLIENT_MUTEX.Unlock()
+	go client.broadcastState()
+	g.clients++
 }
 
 type Server struct {
 	pageListener   net.Listener
-	wsListeners    map[string]net.Listener
+	wsListener     net.Listener
 	availablePorts []string
 	game           *Game
 }
 
 func createServerAndListen() {
 	server := &Server{
-		wsListeners:    make(map[string]net.Listener),
 		availablePorts: make([]string, 0),
 		game:           newGame(),
 	}
@@ -361,19 +367,14 @@ func createServerAndListen() {
 	server.pageListener = pageListener
 	wsMux := http.NewServeMux()
 	wsMux.HandleFunc("/connect", server.wsUpgradeHandler(NewUpgrader()))
-	for i := 0; i < 10; i++ {
-		port := strconv.Itoa(8001 + i)
-		server.availablePorts = append(server.availablePorts, port)
-		listener, err := net.Listen("tcp", ":"+port)
-		if err != nil {
-			slog.Error(err.Error())
-		}
-		if TLS_CERT_PATH == "" {
-			go http.Serve(listener, wsMux)
-		} else {
-			go http.ServeTLS(listener, wsMux, TLS_CERT_PATH, TLS_KEY_PATH)
-		}
-		server.wsListeners[port] = listener
+	server.wsListener, err = net.Listen("tcp", ":8001")
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	if TLS_CERT_PATH == "" {
+		go http.Serve(server.wsListener, wsMux)
+	} else {
+		go http.ServeTLS(server.wsListener, wsMux, TLS_CERT_PATH, TLS_KEY_PATH)
 	}
 
 	if TLS_CERT_PATH == "" {
@@ -441,8 +442,9 @@ type ServerDiscoResponse struct {
 }
 
 func (s *Server) getServer(w http.ResponseWriter, r *http.Request) {
-	port := s.availablePorts[rand.Intn(len(s.availablePorts))]
+	// leaving this disco stuff in case we might actually need it
 	var address string
+	var port = "8001"
 	if TLS_CERT_PATH == "" {
 		address = fmt.Sprintf("ws://%s:%s/connect", HOSTNAME, port)
 	} else {
