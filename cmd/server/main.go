@@ -99,6 +99,7 @@ type OutDataPacket struct {
 
 type Client struct {
 	conn      *websocket.Conn
+	closed    bool
 	gameRef   *Game
 	inChan    chan<- byte
 	ID        uuid.UUID
@@ -139,6 +140,11 @@ func (c *Client) broadcastState() {
 }
 
 func (c *Client) Close() {
+	if c.closed {
+		return
+	} else {
+		c.closed = true
+	}
 	host, _, _ := net.SplitHostPort(c.conn.RemoteAddr().String())
 	c.conn.Close()
 	NEW_IP_MUTEX.Lock()
