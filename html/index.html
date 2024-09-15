@@ -56,8 +56,8 @@
     <div class="main-container">
         <div class="stats">
             <h2>Connected Monkeys: <span id="monkeys">0</span></h2>
-            <h3 id="progress">Progress: </h3>
-            <h3 id="time">Elapsed time: </h3>
+            <h3 id="progress"></h3>
+            <h3 id="time"></h3>
             <h4>Typed Keys: <span id="typed-keys">0</span></h4>
             <h4>Failures: <span id="resets">0</span></h4>
             <h4 id="last-keys"></h4>
@@ -147,7 +147,7 @@
         const startTime = 1726389012000;
         function rerender(){
             if (!ready) return;
-            document.getElementById("progress").innerText = `${lastData.Part+1} of 4011 (${((lastData.Part+1)/4011).toFixed(2)}%)`
+            document.getElementById("progress").innerText = `Completed ${lastData.Part+1} parts of 4011 (${((lastData.Part+1)/4011).toFixed(2)}%)`
             let timeSince = (new Date().getTime() - startTime);
             let hoursSince = timeSince / 1000/60/60;
             let minsSince = (hoursSince - Math.floor(hoursSince)) * 60;
