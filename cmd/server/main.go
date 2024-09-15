@@ -112,8 +112,10 @@ type Client struct {
 
 var ALLOWED_CHARS = []byte("abcdefghijklmnopqrstuvwxyz,.!?;:\"'-")
 
+var TIME_LOC = time.Now().UTC().Location()
+
 func (c *Client) handleInMessages() {
-	var lastRead = time.Date(0, 0, 0, 0, 0, 0, 0, nil)
+	var lastRead = time.Date(0, 0, 0, 0, 0, 0, 0, TIME_LOC)
 	for {
 		var key byte
 		err := c.conn.ReadJSON(&key)
