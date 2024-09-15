@@ -113,16 +113,19 @@ type Client struct {
 var ALLOWED_CHARS = []byte("abcdefghijklmnopqrstuvwxyz,.!?;:\"'-")
 
 func (c *Client) handleInMessages() {
+	var lastRead = time.Date(0, 0, 0, 0, 0, 0, 0, nil)
 	for {
 		var key byte
 		err := c.conn.ReadJSON(&key)
+		var timeSinceLastRead = time.Since(lastRead).Milliseconds()
 		if err != nil {
 			c.Close()
 			return
-		} else if bytes.Contains(ALLOWED_CHARS, []byte{key}) {
+		} else if bytes.Contains(ALLOWED_CHARS, []byte{key}) && timeSinceLastRead > int64(CONFIGURATION.TypeForcedWaitMs) {
+			// we have to swallow because otherwise it will just queue up anyway and potentially be more unfun.
 			c.inChan <- key
 		}
-		time.Sleep(time.Duration(CONFIGURATION.TypeForcedWaitMs) * time.Millisecond) // prevent easy cheating by forcing a wait
+		time.Sleep(10 * time.Millisecond) // force a sleep to prevent flooding
 	}
 }
 
