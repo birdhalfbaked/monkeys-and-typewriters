@@ -1,4 +1,5 @@
 {
+    "TypeForcedWaitMs": 100,
     "SendWaitTimeMs": 16,
     "StaticCacheTimeoutS": 300
 }

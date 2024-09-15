@@ -21,12 +21,14 @@ import (
 )
 
 type config struct {
+	TypeForcedWaitMs    int
 	SendWaitTimeMs      int
 	StaticCacheTimeoutS int
 }
 
 // HOT CONFIGURABLES
 var CONFIGURATION = config{
+	TypeForcedWaitMs:    100,
 	SendWaitTimeMs:      16,
 	StaticCacheTimeoutS: 60 * 5,
 }
@@ -46,7 +48,7 @@ func loadHotConfigurables() {
 		// don't bother
 		return
 	}
-	// double check some reasonable values
+	// double check some reasonable values (excepting the forced user input wait)
 	if newConfig.SendWaitTimeMs > 10 && newConfig.StaticCacheTimeoutS < 20*60 {
 		CONFIGURATION = newConfig
 		slog.Info("new hotload configuration loaded", "values", CONFIGURATION)
@@ -120,7 +122,7 @@ func (c *Client) handleInMessages() {
 		} else if bytes.Contains(ALLOWED_CHARS, []byte{key}) {
 			c.inChan <- key
 		}
-		time.Sleep(50 * time.Millisecond) // prevent easy cheating by forcing a wait
+		time.Sleep(time.Duration(CONFIGURATION.TypeForcedWaitMs) * time.Millisecond) // prevent easy cheating by forcing a wait
 	}
 }
 
